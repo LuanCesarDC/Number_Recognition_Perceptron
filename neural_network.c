@@ -3,13 +3,15 @@
 #include <stdlib.h>
 #include <math.h>
 
+#define LEARNING_RATE 0.25
 
 float sigmoid(float x) {
 	return 1/(1+exp(-x));
 }
 
 float sigmoid_deriv(float x) {
-	return x*(1-x);
+	return x*(1-x);  // OBS isso pensando que x já é sigmoid(k)
+					 // caso contrario seria return sigmoid(x)*(1-sigmoid(x))
 }
 
 void create_neuron(neuron * node, int connections) {
@@ -93,6 +95,105 @@ void feedforward(neural_network * net) {
 	}
 	
 }
+
+// batch_size = 1 primeiramente
+// Dps tem q implementar o batch_size
+void backpropagation(neural_network * net, double * expected, int batch_size) {
+	int i, j, k;
+	
+	// Erros camada saída
+	for(i=0;i<net->output.size;i++) 
+		net->output.neurons[i].error = net->output.neurons[i].activ - expected[i];
+	
+	// Erros ultima camada interna
+	for(i=0;i<net->hidden[net->num_hidden-1].size;i++) {
+		double soma = 0;
+		for(j=0;j<net->output.size;j++)
+			soma += net->output.neurons[j].error * net->output.neurons[j].weights[i];
+		net->hidden[net->num_hidden-1].neurons[i].error = soma;
+	}
+	
+	// Erros restantes camadas internas
+	for(k=net->hidden[net->num_hidden-1].size-2;k>=0;k--) { // Itera sobre as camadas exceto a ultima
+		if(net->num_hidden < 2) break;
+		
+		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios da camada "k"
+			double soma = 0;
+			for(j=0;j<net->hidden[k+1].size;j++)  // Itera sobre os neuronios da camada "k+1"
+				soma += net->hidden[k+1].neurons[j].error * net->hidden[k+1].neurons[j].weights[i];
+			
+			net->hidden[k].neurons[i].error = soma;
+		}
+	}
+	
+	
+	
+	// Atualização pesos da primeira camada interna
+	for(i=0;i<net->hidden[0].size;i++) { // Itera sobre os neuronios de hidden[0]
+		
+		double activ = net->hidden[0].neurons[i].activ;				// a(L)
+		double error = net->hidden[0].neurons[i].error; 				//(a(L) - y)
+		for(j=0;j<net->input.size;j++) {
+			double activ_ant = net->input.neurons[j].activ;  		// a(L-1)
+			
+			
+			net->hidden[0].neurons[i].weights[j] += -1 * LEARNING_RATE * 
+											  		activ_ant *
+											  		error * 
+											  		sigmoid_deriv(activ);
+			
+		}
+		// Atualiza o Bias
+		net->hidden[0].neurons[i].bias += -1 *  LEARNING_RATE *
+												error *
+												sigmoid_deriv(activ);	
+	}
+	
+	// Atualização pesos das demais camadas internas
+	for(k=1;k<net->hidden[net->num_hidden-1].size;k++) {
+		if(net->num_hidden < 2) break;
+		
+		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios de hidden[k]
+			double activ = net->hidden[k].neurons[i].activ; 			// a(L)			
+			double error = net->hidden[k].neurons[i].error; 				//(a(L) - y)
+			for(j=0;j<net->hidden[k-1].size;j++) { // Itera sobre os pesos de hidden[k]
+				double activ_ant = net->hidden[k-1].neurons[j].activ;  		// a(L-1)
+				
+				net->hidden[k].neurons[i].weights[j] += -1 * LEARNING_RATE * 
+												  		activ_ant *
+												  		error * 
+												  		sigmoid_deriv(activ);
+				
+			}
+		// Atualiza o Bias
+		net->hidden[k].neurons[i].bias += -1 *  LEARNING_RATE *
+												error *
+												sigmoid_deriv(activ);	
+		}
+	} 
+	
+	// Atualização da camada de saida
+	for(i=0;i<net->output.size;i++) { // Itera sobre os neuronios de output
+		double activ = net->output.neurons[i].activ; 				// a(L)
+		double error = net->output.neurons[i].error; 			//(a(L) - y)
+		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
+			double activ_ant = net->hidden[net->num_hidden-1].neurons[j].activ;  		// a(L-1)
+			
+			
+			net->output.neurons[i].weights[j] += -1 * LEARNING_RATE * 
+											  	 activ_ant *
+											  	 error * 
+											  	 sigmoid_deriv(activ);
+			
+		}
+		// Atualiza o Bias
+		net->output.neurons[i].bias += -1 *  LEARNING_RATE *
+												error *
+												sigmoid_deriv(activ);	
+	}
+	
+}
+
 
 void printa_camadas(neural_network * net) {
 	int i, j;

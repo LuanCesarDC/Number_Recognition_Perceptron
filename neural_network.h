@@ -5,6 +5,7 @@
 
 typedef struct {
 	double activ;
+	double error;
 	double bias;
 	double * weights;
 } neuron;
@@ -31,6 +32,7 @@ void array_to_input(neural_network * net, float * array);
 
 void feedforward(neural_network * net);
 
+void backpropagation(neural_network * net, double * expected, int batch_size);
 
 void printa_camadas(neural_network * net);
 
