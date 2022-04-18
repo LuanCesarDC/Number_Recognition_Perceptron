@@ -8,6 +8,10 @@ float sigmoid(float x) {
 	return 1/(1+exp(-x));
 }
 
+float sigmoid_deriv(float x) {
+	return x*(1-x);
+}
+
 void create_neuron(neuron * node, int connections) {
 	int i;
 	node->weights = (double *) malloc(connections*sizeof(double));
@@ -48,10 +52,11 @@ neural_network * create_neural_network(int input_size, int num_hidden, int hidde
 	return net;
 }
 
-void array_to_input(neural_network * net, unsigned char * array) {
+void array_to_input(neural_network * net, float * array) {
 	int i;
 	for(i=0;i<net->input.size;i++) {
-		net->input.neurons[i].activ = (float) array[i]/255.0;
+		//net->input.neurons[i].activ = (float) array[i]/255.0;
+		net->input.neurons[i].activ = array[i];
 	}
 }
 
@@ -93,14 +98,14 @@ void printa_camadas(neural_network * net) {
 	int i, j;
 	
 	for(i=0;i<net->input.size;i++) {
-		printf("I%d: %.3lf ", i, net->input.neurons[i].activ);
+		printf("I%d: %.5lf ", i, net->input.neurons[i].activ);
 		if(i%10 == 0 && i > 0)
 			printf("\n");
 	}
 	printf("\n");
 	for(i=0;i<net->num_hidden;i++) {
 		for(j=0;j<net->hidden[i].size;j++) {
-			printf("H%d%d: %.3lf ", i, j, net->hidden[i].neurons[j].activ);
+			printf("H%d%d: %.5lf ", i, j, net->hidden[i].neurons[j].activ);
 			if(j%8 == 0 && j > 0)
 				printf("\n");
 		}
@@ -109,6 +114,21 @@ void printa_camadas(neural_network * net) {
 	for(i=0;i<net->output.size;i++) {
 		printf("O%d: %.3lf ", i, net->output.neurons[i].activ);
 	}
+}
+
+double layer_cost(layer * lay, int required) {
+	double cost = 0;
+	int i;
+	for(i=0;i<lay->size;i++) {
+		double aux;
+		if(i == required)
+			aux = lay->neurons[i].activ - 1;
+		else
+			aux = lay->neurons[i].activ;
+			
+		cost += aux*aux;	
+	}	
+	return cost;
 }
 
 

@@ -27,11 +27,13 @@ void create_neuron(neuron * node, int connections);
 
 neural_network * create_neural_network(int input_size, int num_hidden, int hidden_size, int output_size);
 
-void array_to_input(neural_network * net, unsigned char * array);
+void array_to_input(neural_network * net, float * array);
 
 void feedforward(neural_network * net);
 
 
 void printa_camadas(neural_network * net);
+
+double layer_cost(layer * lay, int required);
 
 #endif //_NEURAL_NETWORK_H_
