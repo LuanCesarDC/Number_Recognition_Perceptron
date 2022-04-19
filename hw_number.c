@@ -58,28 +58,34 @@ void hw_number_print(hw_number image, int modo) {
 	}
 }
 
-void hw_train_neural_network(char * path, int num) {
-
+void hw_train_neural_network(char * path, int num, int epochs) {
 	neural_network * net = create_neural_network(28*28, 2, 16, 10);
-	int i;
+	int i, k;
 	
-	
-	for(i=0;i<num;i++) {
-		double expected[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-		hw_number data = get_training_image(i);
-		expected[data.digit] = 1.0;
-		
-		array_to_input(net, data.buffer);
-		feedforward(net);
-		backpropagation(net, expected, 1);
-		
-		printf("[Iteração %d]\nEsperado: %d\nSaída: %d\n", i, data.digit, get_output(net));
-		if(data.digit == get_output(net))
-			printf("ACERTOU!! ******\n\n");
-		else
-			printf("ERROU!!\n\n");
+	for(k=0;k<epochs;k++) {
+		int v[num];
+		int total = 0, acertos = 0;
+		gen_permutation(num, v);
+		printf("###### [Epoch %d] ######\n", k);
+		for(i=0;i<num;i++) {
+			double expected[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};	
+			hw_number data = get_training_image(v[i]);
+			expected[data.digit] = 1.0;
+			
+			array_to_input(net, data.buffer);
+			feedforward(net);
+			backpropagation(net, expected);
+			
+			//printf("[Iteração %d]\nEsperado: %d\nSaída: %d\n", v[i], data.digit, get_output(net));
+			if(data.digit == get_output(net))
+				acertos++;
+			total++;
+		}
+		printf("Acertos: %d\nTotal: %d\nPercent.: %.3lf\n\n", acertos, total, 100.0*acertos/total);
 	}
+	
 	save_neural_network(net, path);
+	free_neural_network(net);
 }
 
 int get_output(neural_network * net) {
@@ -94,5 +100,19 @@ int get_output(neural_network * net) {
 	return imax;
 }
 
-
+int * gen_permutation(int num, int * v) {
+	int i;
+	for(i=0;i<num;i++) {
+		v[i] = i;
+	}
+	for(i=num-1;i>=0;i--) {
+		int x = rand() % (i+1);
+		int aux;
+		
+		aux = v[i];
+		v[i] = v[x];
+		v[x] = aux;
+	}
+	return v;
+}
 

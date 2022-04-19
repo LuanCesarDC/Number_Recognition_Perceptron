@@ -19,8 +19,10 @@ hw_number get_training_image(int index);
 
 void hw_number_print(hw_number image, int modo);
 
-void hw_train_neural_network(char * path, int num);
+void hw_train_neural_network(char * path, int num, int epochs);
 
 int get_output(neural_network * net);
+
+int * gen_permutation(int num, int * v);
 
 #endif //_HW_NUMBER_H_

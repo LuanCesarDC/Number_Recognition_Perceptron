@@ -28,11 +28,13 @@ void create_neuron(neuron * node, int connections);
 
 neural_network * create_neural_network(int input_size, int num_hidden, int hidden_size, int output_size);
 
+void free_neural_network(neural_network * net);
+
 void array_to_input(neural_network * net, unsigned char * array);
 
 void feedforward(neural_network * net);
 
-void backpropagation(neural_network * net, double * expected, int batch_size);
+void backpropagation(neural_network * net, double * expected);
 
 void save_neural_network(neural_network * net, char * path);
 

@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define LEARNING_RATE 0.025
+#define LEARNING_RATE 0.05
 
 float sigmoid(float x) {
 	return 1/(1+exp(-x));
@@ -54,6 +54,27 @@ neural_network * create_neural_network(int input_size, int num_hidden, int hidde
 	return net;
 }
 
+void free_neural_network(neural_network * net) {
+	int i, j, k;
+	// Libera os neuronios da primeira camada
+	free(net->input.neurons);
+	
+	// Libera as camadas internas
+	for(i=0;i<net->num_hidden;i++) {
+		for(j=0;j<net->hidden[i].size;j++) {
+			free(net->hidden[i].neurons[j].weights);
+		}
+		free(net->hidden[i].neurons);
+	}
+	free(net->hidden);
+	
+	// Libera a ultima camada
+	for(i=0;i<net->output.size;i++) {
+		free(net->output.neurons[i].weights);
+	}
+	free(net->output.neurons);
+}
+
 void array_to_input(neural_network * net, unsigned char * array) {
 	int i;
 	for(i=0;i<net->input.size;i++) {
@@ -98,9 +119,10 @@ void feedforward(neural_network * net) {
 
 // batch_size = 1 primeiramente
 // Dps tem q implementar o batch_size
-void backpropagation(neural_network * net, double * expected, int batch_size) {
-	int i, j, k;
+void backpropagation(neural_network * net, double * expected) {
+	int i, j, k, iter;
 	
+
 	// Erros camada saída
 	for(i=0;i<net->output.size;i++) 
 		net->output.neurons[i].error = net->output.neurons[i].activ - expected[i];
@@ -136,12 +158,10 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 		for(j=0;j<net->input.size;j++) {
 			double activ_ant = net->input.neurons[j].activ;  		// a(L-1)
 			
-			
 			net->hidden[0].neurons[i].weights[j] += -1 * LEARNING_RATE * 
 											  		activ_ant *
 											  		error * 
 											  		sigmoid_deriv(activ);
-			
 		}
 		// Atualiza o Bias
 		net->hidden[0].neurons[i].bias += -1 *  LEARNING_RATE *
@@ -192,7 +212,6 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 												error *
 												sigmoid_deriv(activ);	
 	}
-	
 }
 
 void save_neural_network(neural_network * net, char * path) {
