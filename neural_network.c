@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define LEARNING_RATE 0.05
+#define LEARNING_RATE 0.0025
 
 float sigmoid(float x) {
 	return 1/(1+exp(-x));

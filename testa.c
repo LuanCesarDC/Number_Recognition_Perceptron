@@ -24,6 +24,7 @@ int main() {
 				
 	}*/
 	
-	hw_train_neural_network("teste.dat", 59999, 800);
-	free_neural_network(net);
+	hw_test_neural_network("teste2.dat", 9999);
+	//hw_train_neural_network("teste2.dat", 59999, 10);
+	//free_neural_network(net);
 }

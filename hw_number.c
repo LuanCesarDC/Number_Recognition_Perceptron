@@ -45,6 +45,32 @@ hw_number get_training_image(int index) {
 	return num;
 }
 
+hw_number get_testing_image(int index) {
+	int flag1, flag2;
+	hw_number num;
+	
+	FILE * images = fopen(PATH_T_IMAGES, "rb");
+	FILE * labels = fopen(PATH_T_LABELS, "rb");
+	flag1 = fseek(images, 16+index*HW_NUM_SIZE, SEEK_SET);	// Skip file header and go to index
+	flag2 = fseek(labels, 8+index, SEEK_SET);  				// SKip file header and go to label
+	
+	if(flag1 || flag2) {
+		printf("Erro ao encontrar a imagem de teste\n");
+		exit(1);
+	}
+	if(index >= 60000) {
+		printf("Os indices das imagens de teste vão de 0 a 59999!\n");
+		exit(1);
+	}
+	
+	fread(num.buffer, sizeof(num.buffer), 1, images);
+	num.digit = fgetc(labels);
+	
+	fclose(images);
+	fclose(labels);
+	return num;
+}
+
 void hw_number_print(hw_number image, int modo) {
 
 	for(int i=0;i<28;i++) {
@@ -58,13 +84,16 @@ void hw_number_print(hw_number image, int modo) {
 	}
 }
 
-void hw_train_neural_network(char * path, int num, int epochs) {
-	neural_network * net = create_neural_network(28*28, 2, 16, 10);
+double hw_train_neural_network(char * path, int num, int epochs) {
+	neural_network * net = load_neural_network(path); //= create_neural_network(28*28, 2, 16, 10);
 	int i, k;
+	int total, acertos;
+	double max = 0.8;
 	
 	for(k=0;k<epochs;k++) {
 		int v[num];
-		int total = 0, acertos = 0;
+		total = 0;
+		acertos = 0;
 		gen_permutation(num, v);
 		printf("###### [Epoch %d] ######\n", k);
 		for(i=0;i<num;i++) {
@@ -81,11 +110,38 @@ void hw_train_neural_network(char * path, int num, int epochs) {
 				acertos++;
 			total++;
 		}
+		if((double) acertos/total > max) {
+			save_neural_network(net, path);
+			max = (double) acertos/total;	
+		}
 		printf("Acertos: %d\nTotal: %d\nPercent.: %.3lf\n\n", acertos, total, 100.0*acertos/total);
 	}
 	
-	save_neural_network(net, path);
+	
 	free_neural_network(net);
+	return (double) total/acertos;
+}
+
+void hw_test_neural_network(char * path, int num) {
+	int i;
+	int total = 0, acertos = 0;
+	neural_network * net = load_neural_network(path);
+	
+	for(i=0;i<num;i++) {
+			double expected[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};	
+			hw_number data = get_training_image(i);
+			expected[data.digit] = 1.0;
+			
+			array_to_input(net, data.buffer);
+			feedforward(net);
+			
+			if(data.digit == get_output(net))
+				acertos++;
+			hw_number_print(data, MODO_ASCII);
+			printf("REDE_NEURAL: Dígito -> %d\nRESPOSTA: Dígito -> %d\n\n", get_output(net), data.digit);	
+			total++;
+	}
+	printf("Acertos: %d\nTotal: %d\nPercent.: %.3lf%%\n\n", acertos, total, 100.0*acertos/total);	
 }
 
 int get_output(neural_network * net) {
