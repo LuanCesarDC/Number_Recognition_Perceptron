@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define LEARNING_RATE 0.25
+#define LEARNING_RATE 0.025
 
 float sigmoid(float x) {
 	return 1/(1+exp(-x));
@@ -54,11 +54,11 @@ neural_network * create_neural_network(int input_size, int num_hidden, int hidde
 	return net;
 }
 
-void array_to_input(neural_network * net, float * array) {
+void array_to_input(neural_network * net, unsigned char * array) {
 	int i;
 	for(i=0;i<net->input.size;i++) {
-		//net->input.neurons[i].activ = (float) array[i]/255.0;
-		net->input.neurons[i].activ = array[i];
+		net->input.neurons[i].activ = (float) array[i]/255.0;
+		//net->input.neurons[i].activ = array[i];
 	}
 }
 
@@ -114,7 +114,7 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 	}
 	
 	// Erros restantes camadas internas
-	for(k=net->hidden[net->num_hidden-1].size-2;k>=0;k--) { // Itera sobre as camadas exceto a ultima
+	for(k=net->num_hidden-2;k>=0;k--) { // Itera sobre as camadas exceto a ultima
 		if(net->num_hidden < 2) break;
 		
 		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios da camada "k"
@@ -150,9 +150,9 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 	}
 	
 	// Atualização pesos das demais camadas internas
-	for(k=1;k<net->hidden[net->num_hidden-1].size;k++) {
+	for(k=1;k<net->num_hidden;k++) {
 		if(net->num_hidden < 2) break;
-		
+			
 		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios de hidden[k]
 			double activ = net->hidden[k].neurons[i].activ; 			// a(L)			
 			double error = net->hidden[k].neurons[i].error; 				//(a(L) - y)
@@ -171,13 +171,14 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 												sigmoid_deriv(activ);	
 		}
 	} 
-	
+
 	// Atualização da camada de saida
 	for(i=0;i<net->output.size;i++) { // Itera sobre os neuronios de output
 		double activ = net->output.neurons[i].activ; 				// a(L)
 		double error = net->output.neurons[i].error; 			//(a(L) - y)
 		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
 			double activ_ant = net->hidden[net->num_hidden-1].neurons[j].activ;  		// a(L-1)
+		//	printf("inc: %lf\n", -1 * LEARNING_RATE * activ_ant * error * sigmoid_deriv(activ));
 			
 			
 			net->output.neurons[i].weights[j] += -1 * LEARNING_RATE * 
@@ -194,9 +195,103 @@ void backpropagation(neural_network * net, double * expected, int batch_size) {
 	
 }
 
+void save_neural_network(neural_network * net, char * path) {
+	FILE * ptr;
+	size_t data_written;
+	int i, j, k;
+	
+	ptr = fopen(path, "wb");
+	if(ptr == NULL) {
+		fprintf(stderr, "Não foi possível abrir o arquivo para escrita.\n");
+    	exit(1);
+	}
+	// Guarda o tamanho de cada camada e o numero de camadas internas
+	fwrite(&net->input.size, sizeof(int), 1, ptr);
+	fwrite(&net->num_hidden, sizeof(int), 1, ptr);
+	fwrite(&net->hidden[0].size, sizeof(int), 1, ptr);
+	fwrite(&net->output.size, sizeof(int), 1, ptr);
+	
+	// Guarda os pesos de cada camada interna
+	for(i=0;i<net->hidden[0].size;i++) {
+		fwrite(&net->hidden[0].neurons[i].bias, sizeof(double), 1, ptr);
+		for(j=0;j<net->input.size;j++) {
+			fwrite(&net->hidden[0].neurons[i].weights[j], sizeof(double), 1, ptr);
+		}
+	}
+	for(i=1;i<net->num_hidden;i++) {
+		for(j=0;j<net->hidden[i].size;j++) {
+			fwrite(&net->hidden[i].neurons[j].bias, sizeof(double), 1, ptr);
+			for(k=0;k<net->hidden[i-1].size;k++) {
+				fwrite(&net->hidden[i].neurons[j].weights[k], sizeof(double), 1, ptr);
+			}
+		}
+	}
+	
+	// Guarda os pesos da camada de saída
+	for(i=0;i<net->output.size;i++) {
+		fwrite(&net->output.neurons[i].bias, sizeof(double), 1, ptr);
+		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
+			fwrite(&net->output.neurons[i].weights[j], sizeof(double), 1, ptr);
+		}
+	}
+	
+	fclose(ptr);
+	
+}
+
+neural_network * load_neural_network(char * path) {
+	FILE * ptr;
+	neural_network * net;
+	size_t data_read;
+	int i, j, k;
+	int input_size, num_hidden, hidden_size, output_size;
+	
+	ptr = fopen(path, "rb");
+	if(ptr == NULL) {
+		fprintf(stderr, "Não foi possível abrir o arquivo para escrita.\n");
+    	exit(1);
+	}
+	
+	// Carrega o tamanho de cada camada e o numero de camadas internas
+	fread(&input_size, sizeof(int), 1, ptr);
+	fread(&num_hidden, sizeof(int), 1, ptr);
+	fread(&hidden_size, sizeof(int), 1, ptr);
+	fread(&output_size, sizeof(int), 1, ptr);
+	
+	net = create_neural_network(input_size, num_hidden, hidden_size, output_size);
+	
+	// Carrega os pesos de cada camada interna
+	for(i=0;i<net->hidden[0].size;i++) {
+		fread(&net->hidden[0].neurons[i].bias, sizeof(double), 1, ptr);
+		for(j=0;j<net->input.size;j++) {
+			fread(&net->hidden[0].neurons[i].weights[j], sizeof(double), 1, ptr);
+		}
+	}
+	for(i=1;i<net->num_hidden;i++) {
+		for(j=0;j<net->hidden[i].size;j++) {
+			fread(&net->hidden[i].neurons[j].bias, sizeof(double), 1, ptr);
+			for(k=0;k<net->hidden[i-1].size;k++) {
+				fread(&net->hidden[i].neurons[j].weights[k], sizeof(double), 1, ptr);
+			}
+		}
+	}
+	
+	// Carrega os pesos da camada de saída
+	for(i=0;i<net->output.size;i++) {
+		fread(&net->output.neurons[i].bias, sizeof(double), 1, ptr);
+		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
+			fread(&net->output.neurons[i].weights[j], sizeof(double), 1, ptr);
+		}
+	}
+	
+	fclose(ptr);
+
+	return net;
+}
 
 void printa_camadas(neural_network * net) {
 	int i, j;
+	
 	
 	for(i=0;i<net->input.size;i++) {
 		printf("I%d: %.5lf ", i, net->input.neurons[i].activ);
@@ -216,28 +311,4 @@ void printa_camadas(neural_network * net) {
 		printf("O%d: %.3lf ", i, net->output.neurons[i].activ);
 	}
 }
-
-double layer_cost(layer * lay, int required) {
-	double cost = 0;
-	int i;
-	for(i=0;i<lay->size;i++) {
-		double aux;
-		if(i == required)
-			aux = lay->neurons[i].activ - 1;
-		else
-			aux = lay->neurons[i].activ;
-			
-		cost += aux*aux;	
-	}	
-	return cost;
-}
-
-
-
-
-
-
-
-
-
 

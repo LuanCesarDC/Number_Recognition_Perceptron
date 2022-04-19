@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "neural_network.h"
 #include "hw_number.h"
 
 
@@ -56,3 +57,42 @@ void hw_number_print(hw_number image, int modo) {
 		printf("\n");
 	}
 }
+
+void hw_train_neural_network(char * path, int num) {
+
+	neural_network * net = create_neural_network(28*28, 2, 16, 10);
+	int i;
+	
+	
+	for(i=0;i<num;i++) {
+		double expected[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+		hw_number data = get_training_image(i);
+		expected[data.digit] = 1.0;
+		
+		array_to_input(net, data.buffer);
+		feedforward(net);
+		backpropagation(net, expected, 1);
+		
+		printf("[Iteração %d]\nEsperado: %d\nSaída: %d\n", i, data.digit, get_output(net));
+		if(data.digit == get_output(net))
+			printf("ACERTOU!! ******\n\n");
+		else
+			printf("ERROU!!\n\n");
+	}
+	save_neural_network(net, path);
+}
+
+int get_output(neural_network * net) {
+	int i, imax = 0;
+	double max = -1.0;
+	for(i=0;i<10;i++) {
+		if(net->output.neurons[i].activ > max) {
+			max = net->output.neurons[i].activ;
+			imax = i;
+		}
+	}
+	return imax;
+}
+
+
+
