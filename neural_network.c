@@ -1,333 +1,276 @@
 #include "neural_network.h"
+#include "activation_layer.h"
+#include "dense_layer.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
+#include <string.h> // Para memcpy
 
-#define LEARNING_RATE 0.0025
+#define INITIAL_NETWORK_CAPACITY 4
 
-float sigmoid(float x) {
-	return 1/(1+exp(-x));
-}
+// --- Implementação das Funções da Rede ---
 
-float sigmoid_deriv(float x) {
-	return x*(1-x);  // OBS isso pensando que x já é sigmoid(k)
-					 // caso contrario seria return sigmoid(x)*(1-sigmoid(x))
-}
+NeuralNetwork *create_network(double learning_rate)
+{
+	NeuralNetwork *net = (NeuralNetwork *)malloc(sizeof(NeuralNetwork));
+	if (!net)
+		return NULL;
 
-void create_neuron(neuron * node, int connections) {
-	int i;
-	node->weights = (double *) malloc(connections*sizeof(double));
-	
-	for(i=0;i<connections;i++) {
-		node->weights[i] = ((float)rand() / (float)(RAND_MAX) * 10.0) - 5;
+	net->layers = (Layer **)malloc(INITIAL_NETWORK_CAPACITY * sizeof(Layer *));
+	if (!net->layers)
+	{
+		free(net);
+		return NULL;
 	}
-	node->bias = ((float)rand() / (float)(RAND_MAX) * 10.0) - 5;
-}
-
-neural_network * create_neural_network(int input_size, int num_hidden, int hidden_size, int output_size) {
-	int i, j;
-	neural_network * net = (neural_network *) malloc(sizeof(neural_network));
-
-	// Camada de entrada	
-	net->input.size = input_size;
-	net->input.neurons = (neuron *) malloc(input_size*sizeof(neuron));
-
-	// Camada interna
-	net->hidden = (layer *) malloc(num_hidden*sizeof(layer));
-	net->num_hidden = num_hidden;
-	for(i=0;i<num_hidden;i++) {
-		net->hidden[i].size = hidden_size;
-		net->hidden[i].neurons = (neuron *) malloc(hidden_size*sizeof(neuron));
-		
-		int num_connections = (i == 0) ? (input_size):(hidden_size);
-		for(j=0;j<hidden_size;j++) {
-			create_neuron(&net->hidden[i].neurons[j], num_connections);
-		}
-	}
-	
-	// Camada externa
-	net->output.size = output_size;
-	net->output.neurons = (neuron *) malloc(output_size*sizeof(neuron));
-	for(i=0;i<output_size;i++) {
-		create_neuron(&net->output.neurons[i], hidden_size);
-	}
+	net->num_layers = 0;
+	net->capacity = INITIAL_NETWORK_CAPACITY;
+	net->learning_rate = learning_rate;
 	return net;
 }
 
-void free_neural_network(neural_network * net) {
-	int i, j, k;
-	// Libera os neuronios da primeira camada
-	free(net->input.neurons);
-	
-	// Libera as camadas internas
-	for(i=0;i<net->num_hidden;i++) {
-		for(j=0;j<net->hidden[i].size;j++) {
-			free(net->hidden[i].neurons[j].weights);
+void free_network(NeuralNetwork *net)
+{
+	if (!net)
+		return;
+	// Libera cada camada usando seu próprio ponteiro free_layer
+	for (int i = 0; i < net->num_layers; ++i)
+	{
+		if (net->layers[i] && net->layers[i]->free_layer)
+		{
+			net->layers[i]->free_layer(net->layers[i]);
 		}
-		free(net->hidden[i].neurons);
 	}
-	free(net->hidden);
-	
-	// Libera a ultima camada
-	for(i=0;i<net->output.size;i++) {
-		free(net->output.neurons[i].weights);
-	}
-	free(net->output.neurons);
+	free(net->layers); // Libera o array de ponteiros
+	free(net);		   // Libera a struct da rede
 }
 
-void array_to_input(neural_network * net, unsigned char * array) {
-	int i;
-	for(i=0;i<net->input.size;i++) {
-		net->input.neurons[i].activ = (float) array[i]/255.0;
-		//net->input.neurons[i].activ = array[i];
+// Função auxiliar para aumentar a capacidade do array de camadas
+int ensure_network_capacity(NeuralNetwork *net)
+{
+	if (net->num_layers >= net->capacity)
+	{
+		int new_capacity = net->capacity * 2;
+		Layer **new_layers_ptr = (Layer **)realloc(net->layers, new_capacity * sizeof(Layer *));
+		if (!new_layers_ptr)
+		{
+			fprintf(stderr, "Erro ao realocar memoria para ponteiros de camadas\n");
+			return -1;
+		}
+		net->layers = new_layers_ptr;
+		net->capacity = new_capacity;
 	}
+	return 0;
 }
 
-void feedforward(neural_network * net) {
-	int i, j, k;
-	
-	// First hidden layer
-	for(i=0;i<net->hidden[0].size;i++) {
-		double soma = 0;
-		for(j=0;j<net->input.size;j++) {
-			soma += net->hidden[0].neurons[i].weights[j] * net->input.neurons[j].activ;
-		}
-		net->hidden[0].neurons[i].activ = sigmoid(soma + net->hidden[0].neurons[i].bias);
-	}
-	
-	// Hidden Layers
-	for(i=1;i<net->num_hidden;i++) { // Itera nas camadas internas a partir da segunda
-		for(j=0;j<net->hidden[i].size;j++) { // Itera nos neuronios de hidden[i]
-			double soma = 0;
-			for(k=0;k<net->hidden[i-1].size;k++) { // Itera nos pesos de cada neurônio de hidden[i]
-				soma += net->hidden[i].neurons[j].weights[k] * net->hidden[i-1].neurons[k].activ;
-			}
-			net->hidden[i].neurons[j].activ = sigmoid(soma + net->hidden[i].neurons[j].bias);
+// Adiciona uma camada (já criada) à rede
+int add_layer(NeuralNetwork *net, Layer *layer)
+{
+	if (!net || !layer)
+		return -1;
+
+	// Verifica se o tamanho da entrada da nova camada bate com a saída da anterior
+	if (net->num_layers > 0)
+	{
+		Layer *prev_layer = net->layers[net->num_layers - 1];
+		if (prev_layer->output_size != layer->input_size)
+		{
+			fprintf(stderr, "Erro: Incompatibilidade de tamanho entre camadas! Saida anterior=%d, Entrada nova=%d\n",
+					prev_layer->output_size, layer->input_size);
+			return -1; // Importante checar isso!
 		}
 	}
-	
-	// Camada Externa
-	for(i=0;i<net->output.size;i++) {
-		double soma = 0;
-		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
-			soma += net->output.neurons[i].weights[j] * net->hidden[net->num_hidden-1].neurons[j].activ;
-		}
-		net->output.neurons[i].activ = sigmoid(soma + net->output.neurons[i].bias);
-	}
-	
+
+	if (ensure_network_capacity(net) != 0)
+		return -1; // Garante espaço
+
+	net->layers[net->num_layers] = layer;
+	net->num_layers++;
+	return 0;
 }
 
-// batch_size = 1 primeiramente
-// Dps tem q implementar o batch_size
-void backpropagation(neural_network * net, double * expected) {
-	int i, j, k, iter;
-	
+// Executa o feedforward através de todas as camadas
+int network_forward(NeuralNetwork *net, const double *input)
+{
+	if (!net || !input)
+		return -1;
+	if (net->num_layers == 0)
+		return 0; // Rede vazia
 
-	// Erros camada saída
-	for(i=0;i<net->output.size;i++) 
-		net->output.neurons[i].error = net->output.neurons[i].activ - expected[i];
-	
-	// Erros ultima camada interna
-	for(i=0;i<net->hidden[net->num_hidden-1].size;i++) {
-		double soma = 0;
-		for(j=0;j<net->output.size;j++)
-			soma += net->output.neurons[j].error * net->output.neurons[j].weights[i];
-		net->hidden[net->num_hidden-1].neurons[i].error = soma;
-	}
-	
-	// Erros restantes camadas internas
-	for(k=net->num_hidden-2;k>=0;k--) { // Itera sobre as camadas exceto a ultima
-		if(net->num_hidden < 2) break;
-		
-		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios da camada "k"
-			double soma = 0;
-			for(j=0;j<net->hidden[k+1].size;j++)  // Itera sobre os neuronios da camada "k+1"
-				soma += net->hidden[k+1].neurons[j].error * net->hidden[k+1].neurons[j].weights[i];
-			
-			net->hidden[k].neurons[i].error = soma;
-		}
-	}
-	
-	
-	
-	// Atualização pesos da primeira camada interna
-	for(i=0;i<net->hidden[0].size;i++) { // Itera sobre os neuronios de hidden[0]
-		
-		double activ = net->hidden[0].neurons[i].activ;				// a(L)
-		double error = net->hidden[0].neurons[i].error; 				//(a(L) - y)
-		for(j=0;j<net->input.size;j++) {
-			double activ_ant = net->input.neurons[j].activ;  		// a(L-1)
-			
-			net->hidden[0].neurons[i].weights[j] += -1 * LEARNING_RATE * 
-											  		activ_ant *
-											  		error * 
-											  		sigmoid_deriv(activ);
-		}
-		// Atualiza o Bias
-		net->hidden[0].neurons[i].bias += -1 *  LEARNING_RATE *
-												error *
-												sigmoid_deriv(activ);	
-	}
-	
-	// Atualização pesos das demais camadas internas
-	for(k=1;k<net->num_hidden;k++) {
-		if(net->num_hidden < 2) break;
-			
-		for(i=0;i<net->hidden[k].size;i++) { // Itera sobre os neuronios de hidden[k]
-			double activ = net->hidden[k].neurons[i].activ; 			// a(L)			
-			double error = net->hidden[k].neurons[i].error; 				//(a(L) - y)
-			for(j=0;j<net->hidden[k-1].size;j++) { // Itera sobre os pesos de hidden[k]
-				double activ_ant = net->hidden[k-1].neurons[j].activ;  		// a(L-1)
-				
-				net->hidden[k].neurons[i].weights[j] += -1 * LEARNING_RATE * 
-												  		activ_ant *
-												  		error * 
-												  		sigmoid_deriv(activ);
-				
-			}
-		// Atualiza o Bias
-		net->hidden[k].neurons[i].bias += -1 *  LEARNING_RATE *
-												error *
-												sigmoid_deriv(activ);	
-		}
-	} 
+	double *current_output = NULL;		 // Buffer para a saída da camada atual
+	const double *current_input = input; // Entrada inicial é a da rede
 
-	// Atualização da camada de saida
-	for(i=0;i<net->output.size;i++) { // Itera sobre os neuronios de output
-		double activ = net->output.neurons[i].activ; 				// a(L)
-		double error = net->output.neurons[i].error; 			//(a(L) - y)
-		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
-			double activ_ant = net->hidden[net->num_hidden-1].neurons[j].activ;  		// a(L-1)
-		//	printf("inc: %lf\n", -1 * LEARNING_RATE * activ_ant * error * sigmoid_deriv(activ));
-			
-			
-			net->output.neurons[i].weights[j] += -1 * LEARNING_RATE * 
-											  	 activ_ant *
-											  	 error * 
-											  	 sigmoid_deriv(activ);
-			
+	for (int i = 0; i < net->num_layers; ++i)
+	{
+		Layer *current_layer = net->layers[i];
+
+		// O buffer de saída da camada atual é o buffer 'activations' dela
+		current_output = current_layer->activations;
+
+		// Chama o forward da camada atual
+		if (current_layer->forward(current_layer, current_input, current_output) != 0)
+		{
+			fprintf(stderr, "Erro durante o forward na camada %d\n", i);
+			return -1;
 		}
-		// Atualiza o Bias
-		net->output.neurons[i].bias += -1 *  LEARNING_RATE *
-												error *
-												sigmoid_deriv(activ);	
+
+		// A saída desta camada (current_output) se torna a entrada da próxima
+		current_input = current_output;
 	}
+	return 0; // Sucesso
 }
 
-void save_neural_network(neural_network * net, char * path) {
-	FILE * ptr;
-	size_t data_written;
-	int i, j, k;
-	
-	ptr = fopen(path, "wb");
-	if(ptr == NULL) {
-		fprintf(stderr, "Não foi possível abrir o arquivo para escrita.\n");
-    	exit(1);
+// Executa o backpropagation através de todas as camadas
+int network_backward(NeuralNetwork *net, const double *expected_output)
+{
+	if (!net || !expected_output)
+		return -1;
+	int n_layers = net->num_layers;
+	if (n_layers == 0)
+		return 0;
+
+	// --- Passo 1: Calcular o erro inicial na última camada ---
+	Layer *last_layer = net->layers[n_layers - 1];
+	// O gradiente inicial (upstream) para a última camada.
+	// Depende da função de perda e da ativação da última camada.
+	// Exemplo: Para perda MSE e última ativação Sigmoid:
+	// gradient = (activation - expected) * sigmoid_deriv(activation)
+	double *initial_gradient = (double *)malloc(last_layer->output_size * sizeof(double));
+	if (!initial_gradient)
+		return -1;
+
+	for (int i = 0; i < last_layer->output_size; ++i)
+	{
+		double activation = last_layer->activations[i];
+		// Assumindo que a última camada foi Sigmoid e a perda é MSE
+		// (Idealmente, a função de perda seria separada)
+		double error_signal = activation - expected_output[i];
+		// Assumindo que a última camada *é* uma Sigmoid (ou tem ativação sigmoid embutida)
+		// Se a ultima camada for só Densa, a derivada da ativação (que viria depois) é que entra aqui.
+		// VAMOS ASSUMIR QUE A ÚLTIMA CAMADA É DE ATIVAÇÃO SIGMOID por simplicidade:
+		initial_gradient[i] = error_signal * sigmoid_deriv_from_output(activation); // Gradiente delta inicial
+		// Copia o gradiente inicial para o buffer de gradiente downstream da última camada,
+		// pois ele será o upstream da penúltima.
+		last_layer->downstream_gradient[i] = initial_gradient[i];
 	}
-	// Guarda o tamanho de cada camada e o numero de camadas internas
-	fwrite(&net->input.size, sizeof(int), 1, ptr);
-	fwrite(&net->num_hidden, sizeof(int), 1, ptr);
-	fwrite(&net->hidden[0].size, sizeof(int), 1, ptr);
-	fwrite(&net->output.size, sizeof(int), 1, ptr);
-	
-	// Guarda os pesos de cada camada interna
-	for(i=0;i<net->hidden[0].size;i++) {
-		fwrite(&net->hidden[0].neurons[i].bias, sizeof(double), 1, ptr);
-		for(j=0;j<net->input.size;j++) {
-			fwrite(&net->hidden[0].neurons[i].weights[j], sizeof(double), 1, ptr);
+
+	// Ponteiro para o gradiente que VEM da camada seguinte (começa com o inicial)
+	const double *upstream_gradient = initial_gradient; // Para a penúltima camada
+
+	// --- Passo 2: Propagar o erro para trás ---
+	for (int i = n_layers - 2; i >= 0; --i)
+	{ // Itera da penúltima para a primeira
+		Layer *current_layer = net->layers[i];
+		Layer *next_layer = net->layers[i + 1]; // Camada de onde veio o gradiente
+
+		// Gradiente que VEM da camada seguinte
+		upstream_gradient = next_layer->downstream_gradient;
+
+		// Buffer onde esta camada escreverá o gradiente para a camada anterior
+		double *downstream_gradient_buffer = current_layer->downstream_gradient;
+
+		// Entrada que esta camada recebeu durante o forward
+		const double *input_data_from_forward = current_layer->input_data_buffer;
+
+		// Chama o backward da camada atual
+		if (current_layer->backward(current_layer, upstream_gradient,
+									input_data_from_forward,
+									downstream_gradient_buffer, net->learning_rate) != 0)
+		{
+			fprintf(stderr, "Erro durante o backward na camada %d\n", i);
+			free(initial_gradient);
+			return -1;
 		}
+		// O downstream_gradient calculado por esta camada se torna o upstream para a próxima iteração (anterior)
+		// (Não precisa fazer nada, pois já foi escrito no buffer correto e será lido na próxima iteração)
 	}
-	for(i=1;i<net->num_hidden;i++) {
-		for(j=0;j<net->hidden[i].size;j++) {
-			fwrite(&net->hidden[i].neurons[j].bias, sizeof(double), 1, ptr);
-			for(k=0;k<net->hidden[i-1].size;k++) {
-				fwrite(&net->hidden[i].neurons[j].weights[k], sizeof(double), 1, ptr);
-			}
-		}
-	}
-	
-	// Guarda os pesos da camada de saída
-	for(i=0;i<net->output.size;i++) {
-		fwrite(&net->output.neurons[i].bias, sizeof(double), 1, ptr);
-		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
-			fwrite(&net->output.neurons[i].weights[j], sizeof(double), 1, ptr);
-		}
-	}
-	
-	fclose(ptr);
-	
+
+	free(initial_gradient); // Libera o buffer do gradiente inicial
+	return 0;				// Sucesso
 }
 
-neural_network * load_neural_network(char * path) {
-	FILE * ptr;
-	neural_network * net;
-	size_t data_read;
-	int i, j, k;
-	int input_size, num_hidden, hidden_size, output_size;
-	
-	ptr = fopen(path, "rb");
-	if(ptr == NULL) {
-		fprintf(stderr, "Não foi possível abrir o arquivo para escrita.\n");
-    	exit(1);
-	}
-	
-	// Carrega o tamanho de cada camada e o numero de camadas internas
-	fread(&input_size, sizeof(int), 1, ptr);
-	fread(&num_hidden, sizeof(int), 1, ptr);
-	fread(&hidden_size, sizeof(int), 1, ptr);
-	fread(&output_size, sizeof(int), 1, ptr);
-	
-	net = create_neural_network(input_size, num_hidden, hidden_size, output_size);
-	
-	// Carrega os pesos de cada camada interna
-	for(i=0;i<net->hidden[0].size;i++) {
-		fread(&net->hidden[0].neurons[i].bias, sizeof(double), 1, ptr);
-		for(j=0;j<net->input.size;j++) {
-			fread(&net->hidden[0].neurons[i].weights[j], sizeof(double), 1, ptr);
-		}
-	}
-	for(i=1;i<net->num_hidden;i++) {
-		for(j=0;j<net->hidden[i].size;j++) {
-			fread(&net->hidden[i].neurons[j].bias, sizeof(double), 1, ptr);
-			for(k=0;k<net->hidden[i-1].size;k++) {
-				fread(&net->hidden[i].neurons[j].weights[k], sizeof(double), 1, ptr);
-			}
-		}
-	}
-	
-	// Carrega os pesos da camada de saída
-	for(i=0;i<net->output.size;i++) {
-		fread(&net->output.neurons[i].bias, sizeof(double), 1, ptr);
-		for(j=0;j<net->hidden[net->num_hidden-1].size;j++) {
-			fread(&net->output.neurons[i].weights[j], sizeof(double), 1, ptr);
-		}
-	}
-	
-	fclose(ptr);
+int network_save(NeuralNetwork *net, const char *filename)
+{
+	if (!net || !filename)
+		return -1;
 
-	return net;
+	FILE *fp = fopen(filename, "wb"); // Abrir em modo binário para escrita
+	if (!fp)
+	{
+		perror("Erro ao abrir arquivo para salvar rede");
+		return -1;
+	}
+
+	// 1. Escrever o número de camadas
+	if (fwrite(&net->num_layers, sizeof(int), 1, fp) != 1)
+	{
+		perror("Erro ao escrever numero de camadas");
+		fclose(fp);
+		return -1;
+	}
+
+	// 2. Iterar e salvar cada camada
+	for (int i = 0; i < net->num_layers; ++i)
+	{
+		Layer *layer = net->layers[i];
+
+		// 2.1 Determinar e Escrever o Tipo da Camada
+		//     Precisamos de uma forma de saber o tipo. Vamos usar um truque:
+		//     Verificar qual função 'save' está atribuída. Não é ideal, um enum LayerType
+		//     na struct Layer seria melhor, mas vamos adaptar ao código atual.
+		LayerType type_to_save;
+		if (layer->save == dense_save)
+		{ // Compara ponteiros de função
+			type_to_save = LAYER_DENSE;
+		}
+		else if (layer->save == activation_save)
+		{											 // Assumindo que só temos Sigmoid por enquanto
+													 // Precisaríamos diferenciar Sigmoid/ReLU se tivéssemos ambos
+			type_to_save = LAYER_ACTIVATION_SIGMOID; // Assumir Sigmoid
+		}
+		else
+		{
+			fprintf(stderr, "Erro: Tipo de camada desconhecido para salvar na camada %d\n", i);
+			fclose(fp);
+			return -1; // Tipo desconhecido
+		}
+		if (fwrite(&type_to_save, sizeof(LayerType), 1, fp) != 1)
+		{ // Escreve o enum/int do tipo
+			perror("Erro ao escrever tipo da camada");
+			fclose(fp);
+			return -1;
+		}
+
+		// 2.2 Escrever tamanhos input/output
+		if (fwrite(&layer->input_size, sizeof(int), 1, fp) != 1)
+		{ /* erro */
+			fclose(fp);
+			return -1;
+		}
+		if (fwrite(&layer->output_size, sizeof(int), 1, fp) != 1)
+		{ /* erro */
+			fclose(fp);
+			return -1;
+		}
+
+		// 2.3 Chamar a função 'save' específica da camada
+		if (layer->save(layer, fp) != 0)
+		{
+			fprintf(stderr, "Erro ao salvar dados especificos da camada %d (tipo %d)\n", i, type_to_save);
+			fclose(fp);
+			return -1;
+		}
+		printf("Camada %d (Tipo %d, %d->%d) salva.\n", i, type_to_save, layer->input_size, layer->output_size);
+
+	} // Fim for camadas
+
+	printf("Rede salva com sucesso em %s\n", filename);
+	fclose(fp);
+	return 0; // Sucesso
 }
 
-void printa_camadas(neural_network * net) {
-	int i, j;
-	
-	
-	for(i=0;i<net->input.size;i++) {
-		printf("I%d: %.5lf ", i, net->input.neurons[i].activ);
-		if(i%10 == 0 && i > 0)
-			printf("\n");
-	}
-	printf("\n");
-	for(i=0;i<net->num_hidden;i++) {
-		for(j=0;j<net->hidden[i].size;j++) {
-			printf("H%d%d: %.5lf ", i, j, net->hidden[i].neurons[j].activ);
-			if(j%8 == 0 && j > 0)
-				printf("\n");
-		}
-		printf("\n");
-	}
-	for(i=0;i<net->output.size;i++) {
-		printf("O%d: %.3lf ", i, net->output.neurons[i].activ);
-	}
+// Retorna ponteiro para as ativações da última camada
+double *get_network_output(NeuralNetwork *net)
+{
+	if (!net || net->num_layers == 0)
+		return NULL;
+	return net->layers[net->num_layers - 1]->activations;
 }
-

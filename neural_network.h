@@ -1,46 +1,58 @@
-#ifndef _NEURAL_NETWORK_H_
-#define _NEURAL_NETWORK_H_
+#ifndef FLEXIBLE_NEURAL_NETWORK_H_
+#define FLEXIBLE_NEURAL_NETWORK_H_
 
-#define BIAS -1
+#include <stdlib.h>
+#include <stdio.h>
 
-typedef struct {
-	double activ;
-	double error;
-	double bias;
-	double * weights;
-} neuron;
+// --- DEFINIÇÃO DO ENUM LayerType --- <<< ADICIONAR ESTA SEÇÃO
+typedef enum
+{
+    LAYER_UNKNOWN = 0, // Um valor padrão/erro
+    LAYER_DENSE,
+    LAYER_ACTIVATION_SIGMOID
+    // Adicione outros tipos conforme necessário (ex: LAYER_ACTIVATION_RELU)
+} LayerType;
 
-typedef struct {
-	neuron * neurons;
-	int size;
-} layer;
+typedef struct Layer_s
+{
+    int (*forward)(struct Layer_s *layer, const double *input, double *output_buffer);
+    int (*backward)(struct Layer_s *layer, const double *upstream_gradient,
+                    const double *input_data_from_forward,
+                    double *downstream_gradient_buffer, double learning_rate);
+    void (*free_layer)(struct Layer_s *layer);
+    int (*save)(struct Layer_s *layer, FILE *fp);
 
-typedef struct {
-	layer input;
-	layer * hidden;
-	layer output;
-	int num_hidden;
-} neural_network;
+    // Dados da Camada:
+    void *internal_data;
+    int input_size;
+    int output_size;
 
-float sigmoid(float x);
+    // Buffers genéricos:
+    double *activations;
+    double *input_data_buffer;
+    double *downstream_gradient;
 
-void create_neuron(neuron * node, int connections);
+    // Opcional, mas recomendado para salvar/carregar de forma robusta:
+    // LayerType type; // <<< Seria melhor adicionar este campo
 
-neural_network * create_neural_network(int input_size, int num_hidden, int hidden_size, int output_size);
+} Layer;
 
-void free_neural_network(neural_network * net);
+// ... (struct NeuralNetwork e protótipos de função como antes) ...
+typedef struct
+{
+    Layer **layers;
+    int num_layers;
+    int capacity;
+    double learning_rate;
+} NeuralNetwork;
 
-void array_to_input(neural_network * net, unsigned char * array);
+NeuralNetwork *create_network(double learning_rate);
+void free_network(NeuralNetwork *net);
+int add_layer(NeuralNetwork *net, Layer *layer);
+int network_forward(NeuralNetwork *net, const double *input);
+int network_backward(NeuralNetwork *net, const double *expected_output);
+double *get_network_output(NeuralNetwork *net);
+int network_save(NeuralNetwork *net, const char *filename);
+// NeuralNetwork* network_load(const char* filename);
 
-void feedforward(neural_network * net);
-
-void backpropagation(neural_network * net, double * expected);
-
-void save_neural_network(neural_network * net, char * path);
-
-neural_network * load_neural_network(char * path);
-
-void printa_camadas(neural_network * net);
-
-
-#endif //_NEURAL_NETWORK_H_
+#endif // FLEXIBLE_NEURAL_NETWORK_H_
