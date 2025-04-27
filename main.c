@@ -10,83 +10,104 @@
 
 // Dentro da função main:
 int main(int argc, char *argv[]) {
-    // --- Valores Padrão ---
-    int hidden_size = 64;
-    double learning_rate = 0.01;
-    int num_epochs = 15;
-    unsigned int seed = 0; // Semente fixa para reprodutibilidade
+    // --- Parâmetros Fixos ---
+    const int    HIDDEN_SIZE = 512;
+    const double LEARNING_RATE = 0.2;
+    const int    NUM_EPOCHS = 3;
+    unsigned int seed = 42; // Semente fixa padrão
 
-    // --- Processar Argumentos (Exemplo Básico) ---
-    // Exemplo: ./programa <hidden_size> <learning_rate> <epochs> <seed>
+    // --- Parâmetro Variável (Número de Camadas Densas) ---
+    int num_dense_layers = 2; // Valor padrão (1 oculta + 1 saída)
+
+    // --- Processar Argumentos ---
+    // Exemplo: ./programa <num_dense_layers> <seed>
     if (argc >= 2) {
-        hidden_size = atoi(argv[1]);
+        num_dense_layers = atoi(argv[1]);
+        if (num_dense_layers < 2) {
+             fprintf(stderr, "Erro: O numero total de camadas densas deve ser pelo menos 2.\n");
+             return 1;
+        }
     }
-    if (argc >= 3) {
-        learning_rate = atof(argv[2]);
-    }
-    if (argc >= 4) {
-        num_epochs = atoi(argv[3]);
-    }
-    if (argc >= 5) {
-         seed = (unsigned int)atoi(argv[4]);
+     if (argc >= 3) {
+         seed = (unsigned int)atoi(argv[2]);
          printf("Usando semente para srand: %u\n", seed);
     } else {
          printf("Usando semente padrao para srand: %u\n", seed);
     }
 
+    // Usar semente
+    srand(seed);
 
-    // Usar semente fixa para reprodutibilidade entre runs CPU/GPU
-    srand(seed); // <<< MODIFICADO
-
-    printf("Configuracao: Hidden=%d, LR=%.4f, Epochs=%d, Seed=%u\n",
-           hidden_size, learning_rate, num_epochs, seed);
-
+    printf("Configuracao: NumDenseLayers=%d, HiddenSize=%d, LR=%.4f, Epochs=%d, Seed=%u\n",
+           num_dense_layers, HIDDEN_SIZE, LEARNING_RATE, NUM_EPOCHS, seed);
 
     // --- 1. Definir Arquitetura e Criar Rede ---
     printf("Criando a rede neural flexivel...\n");
-    // Use a learning_rate lida dos argumentos
-    NeuralNetwork* net = create_network(learning_rate);
-    if (!net) { /* ... erro ... */ return 1; }
+    NeuralNetwork* net = create_network(LEARNING_RATE); // Usa LR fixa
+    if (!net) { fprintf(stderr,"Falha ao criar rede\n"); return 1; }
 
     int input_size = HW_NUM_SIZE; // 784
     int output_size = 10;         // Dígitos 0-9
+    int current_input_size = input_size;
+    int num_hidden_layers = num_dense_layers - 1; // Número de camadas densas *ocultas*
 
-    printf("Arquitetura: %d -> Dense(%d) -> Sigmoid -> Dense(%d) -> Sigmoid\n",
-           input_size, hidden_size, output_size);
+    printf("Arquitetura: %d", input_size);
 
-    // Adicionar camadas (use hidden_size lido dos argumentos)
-    Layer* dense1 = create_dense_layer(input_size, hidden_size);
-    Layer* act1 = create_sigmoid_activation_layer(hidden_size);
-    Layer* dense2 = create_dense_layer(hidden_size, output_size);
-    Layer* act2 = create_sigmoid_activation_layer(output_size);
+    // --- Adicionar Camadas Dinamicamente ---
+    Layer *dense_layer = NULL;
+    Layer *activation_layer = NULL;
 
-    if (add_layer(net, dense1) != 0 || add_layer(net, act1) != 0 ||
-        add_layer(net, dense2) != 0 || add_layer(net, act2) != 0) {
-        /* ... erro ... */ return 1;
+    // Adiciona as camadas ocultas (se houver)
+    for (int i = 0; i < num_hidden_layers; ++i) {
+        printf(" -> Dense(%d) -> Sigmoid", HIDDEN_SIZE);
+        dense_layer = create_dense_layer(current_input_size, HIDDEN_SIZE);
+        activation_layer = create_sigmoid_activation_layer(HIDDEN_SIZE);
+        if (!dense_layer || !activation_layer ||
+            add_layer(net, dense_layer) != 0 ||
+            add_layer(net, activation_layer) != 0)
+        {
+            fprintf(stderr, "Falha ao adicionar camada oculta %d\n", i + 1);
+            free_network(net); // Libera o que foi alocado até agora
+            return 1;
+        }
+        current_input_size = HIDDEN_SIZE; // Saída desta camada é entrada da próxima
     }
-    printf("Rede criada com sucesso (%d camadas).\n", net->num_layers);
+
+    // Adiciona a camada de saída final
+    printf(" -> Dense(%d) -> Sigmoid\n", output_size);
+    dense_layer = create_dense_layer(current_input_size, output_size);
+    activation_layer = create_sigmoid_activation_layer(output_size);
+     if (!dense_layer || !activation_layer ||
+        add_layer(net, dense_layer) != 0 ||
+        add_layer(net, activation_layer) != 0)
+    {
+        fprintf(stderr, "Falha ao adicionar camada de saida\n");
+        free_network(net);
+        return 1;
+    }
+
+    printf("Rede criada com sucesso (%d camadas Layer_t, %d camadas densas).\n", net->num_layers, num_dense_layers);
 
 
     // --- 2. Treinar a Rede ---
-    int num_training_images = 55000; // Pode ser parametrizado também se desejar
+    int num_training_images = 55000;
     printf("Iniciando treino (%d imagens, %d epocas, lr=%.4f)...\n",
-           num_training_images, num_epochs, net->learning_rate); // Use net->learning_rate
+           num_training_images, NUM_EPOCHS, net->learning_rate);
 
-    // Chama a função de treino (que agora mede o tempo internamente)
-    hw_train_flexible_network(net, num_training_images, num_epochs);
+    // Chama a função de treino (que mede o tempo internamente)
+    hw_train_flexible_network(net, num_training_images, NUM_EPOCHS); // Usa Epochs fixo
 
 
     // --- 3. Testar a Rede ---
     int num_testing_images = 10000;
     printf("\nIniciando teste final (%d imagens)...\n", num_testing_images);
-    // Chama a função de teste (que agora imprime a acurácia no formato parseável)
+    // Chama a função de teste (que imprime tempo e acurácia)
     hw_test_flexible_network(net, num_testing_images);
 
 
     // --- 4. Salvar a Rede Treinada --- (Opcional para benchmark)
     // const char* save_filename = "mnist_network.dat";
-    // printf("\nSalvando a rede treinada em %s...\n", save_filename);
-    // if (network_save(net, save_filename) != 0) { /* ... erro ... */ }
+    // ... (código de salvar) ...
 
 
     // --- 5. Liberar Memória ---

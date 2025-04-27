@@ -1,12 +1,10 @@
 #!/bin/bash
 
 # === Configurações ===
-declare -a HIDDEN_SIZES=(128 512 1024)
-declare -a LEARNING_RATES=(0.2)
-declare -a EPOCHS=(3)
+declare -a NUM_DENSE_LAYERS=(2 4 8 16 24)
 SEED=42
-OUTPUT_FILE="benchmark_results_full.csv" # Novo nome de arquivo
-GPU_ARCH="sm_86" # Substitua pela sua arquitetura
+OUTPUT_FILE="benchmark_depth_results.csv"
+GPU_ARCH="sm_86"
 
 # === Compilação (com -lrt) ===
 echo "Compilando versão CPU..."
@@ -18,40 +16,38 @@ nvcc main.c neural_network.c dense_layer.c activation_layer.c hw_number.c nn_mat
 if [ $? -ne 0 ]; then echo "Falha na compilação GPU!"; exit 1; fi
 
 # === Execução dos Testes ===
-echo "Iniciando Benchmarks..."
-# Cria cabeçalho do CSV (adiciona InferenceTime)
-echo "Backend,HiddenSize,LearningRate,Epochs,Seed,TrainingTime(s),InferenceTime(s),Accuracy(%)" > $OUTPUT_FILE
+echo "Iniciando Benchmarks de Profundidade..."
+# Cria cabeçalho do CSV (modificado)
+echo "Backend,NumDenseLayers,Seed,TrainingTime(s),InferenceTime(s),Accuracy(%)" > $OUTPUT_FILE
 
-# Loop pelas configurações
-for hs in "${HIDDEN_SIZES[@]}"; do
-  for lr in "${LEARNING_RATES[@]}"; do
-    for ep in "${EPOCHS[@]}"; do
-      echo "--- Executando: HS=$hs LR=$lr Epochs=$ep ---"
+# Loop pelas configurações de profundidade
+for ndl in "${NUM_DENSE_LAYERS[@]}"; do
+  echo "--- Executando: NumDenseLayers=$ndl ---"
 
-      # --- Run CPU ---
-      echo "  Rodando CPU..."
-      output_cpu=$(./mnist_cpu_bench $hs $lr $ep $SEED)
-      # Extrai tempo de treino, tempo de inferência e acurácia
-      time_cpu=$(echo "$output_cpu" | grep 'TRAINING_TIME:' | cut -d' ' -f2)
-      inf_time_cpu=$(echo "$output_cpu" | grep 'INFERENCE_TIME:' | cut -d' ' -f2) # <<< NOVO
-      acc_cpu=$(echo "$output_cpu" | grep 'FINAL_ACCURACY:' | cut -d' ' -f2)
-      echo "    CPU -> Treino: ${time_cpu}s, Inferência: ${inf_time_cpu}s, Acurácia: ${acc_cpu}%"
-      # Salva no CSV (adiciona inf_time_cpu)
-      echo "CPU,$hs,$lr,$ep,$SEED,$time_cpu,$inf_time_cpu,$acc_cpu" >> $OUTPUT_FILE # <<< MODIFICADO
+  # --- Run CPU ---
+  echo "  Rodando CPU..."
+  # Executa passando o número de camadas densas e a semente
+  output_cpu=$(./mnist_cpu_bench $ndl $SEED)
+  # Extrai tempo de treino, tempo de inferência e acurácia
+  time_cpu=$(echo "$output_cpu" | grep 'TRAINING_TIME:' | cut -d' ' -f2)
+  inf_time_cpu=$(echo "$output_cpu" | grep 'INFERENCE_TIME:' | cut -d' ' -f2)
+  acc_cpu=$(echo "$output_cpu" | grep 'FINAL_ACCURACY:' | cut -d' ' -f2)
+  echo "    CPU -> Treino: ${time_cpu}s, Inferência: ${inf_time_cpu}s, Acurácia: ${acc_cpu}%"
+  # Salva no CSV (modificado)
+  echo "CPU,$ndl,$SEED,$time_cpu,$inf_time_cpu,$acc_cpu" >> $OUTPUT_FILE
 
-      # --- Run GPU ---
-      echo "  Rodando GPU..."
-      output_gpu=$(./mnist_gpu_bench $hs $lr $ep $SEED)
-      # Extrai tempo de treino, tempo de inferência e acurácia
-      time_gpu=$(echo "$output_gpu" | grep 'TRAINING_TIME:' | cut -d' ' -f2)
-      inf_time_gpu=$(echo "$output_gpu" | grep 'INFERENCE_TIME:' | cut -d' ' -f2) # <<< NOVO
-      acc_gpu=$(echo "$output_gpu" | grep 'FINAL_ACCURACY:' | cut -d' ' -f2)
-      echo "    GPU -> Treino: ${time_gpu}s, Inferência: ${inf_time_gpu}s, Acurácia: ${acc_gpu}%"
-      # Salva no CSV (adiciona inf_time_gpu)
-      echo "GPU,$hs,$lr,$ep,$SEED,$time_gpu,$inf_time_gpu,$acc_gpu" >> $OUTPUT_FILE # <<< MODIFICADO
+  # --- Run GPU ---
+  echo "  Rodando GPU..."
+  # Executa passando o número de camadas densas e a semente
+  output_gpu=$(./mnist_gpu_bench $ndl $SEED)
+  # Extrai tempo de treino, tempo de inferência e acurácia
+  time_gpu=$(echo "$output_gpu" | grep 'TRAINING_TIME:' | cut -d' ' -f2)
+  inf_time_gpu=$(echo "$output_gpu" | grep 'INFERENCE_TIME:' | cut -d' ' -f2)
+  acc_gpu=$(echo "$output_gpu" | grep 'FINAL_ACCURACY:' | cut -d' ' -f2)
+  echo "    GPU -> Treino: ${time_gpu}s, Inferência: ${inf_time_gpu}s, Acurácia: ${acc_gpu}%"
+  # Salva no CSV (modificado)
+  echo "GPU,$ndl,$SEED,$time_gpu,$inf_time_gpu,$acc_gpu" >> $OUTPUT_FILE
 
-    done
-  done
 done
 
 echo "Benchmarks concluídos. Resultados salvos em $OUTPUT_FILE"
