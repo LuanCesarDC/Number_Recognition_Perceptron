@@ -3,7 +3,7 @@
 # === Configurações ===
 declare -a HIDDEN_SIZES=(128 512 1024)
 declare -a LEARNING_RATES=(0.2)
-declare -a EPOCHS=(5 10 15)
+declare -a EPOCHS=(3)
 SEED=42
 OUTPUT_FILE="benchmark_results_full.csv" # Novo nome de arquivo
 GPU_ARCH="sm_86" # Substitua pela sua arquitetura
