@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # === Configurações ===
-declare -a HIDDEN_SIZES=(32 64 128) # Tamanhos da camada oculta a testar
-declare -a LEARNING_RATES=(0.01 0.1 0.2) # Taxas de aprendizado a testar
-declare -a EPOCHS=(5 10 15 30 50)          # Número de épocas a testar
+declare -a HIDDEN_SIZES=(32 64) # Tamanhos da camada oculta a testar
+declare -a LEARNING_RATES=(0.01 0.1) # Taxas de aprendizado a testar
+declare -a EPOCHS=(5 10 15)          # Número de épocas a testar
 SEED=42                             # Semente fixa para todos os runs
 OUTPUT_FILE="benchmark_results.csv" # Arquivo para salvar os resultados
 GPU_ARCH="sm_86"                    # Substitua pela sua arquitetura (ex: sm_89, sm_75)
