@@ -381,10 +381,16 @@ void hw_test_flexible_network(NeuralNetwork *net, int num_images_to_test)
 
     } // Fim loop imagens teste
 
-    // Imprime resultado final do teste
+    // Calcular acurácia
+    double final_accuracy = (total_test > 0) ? (100.0 * acertos_test / total_test) : 0.0;
+
+    // Imprime resultado final do teste (como antes)
     printf("\nTeste Concluido.\n");
     printf("Acertos: %d / Total: %d / Precisao Final: %.3f%%\n\n",
-           acertos_test, total_test, 100.0 * acertos_test / total_test);
+           acertos_test, total_test, final_accuracy);
+
+    // Imprimir acurácia final (formato fácil de parsear)
+    printf("FINAL_ACCURACY: %.4f\n", final_accuracy); // <<< ADICIONADO
 
     free(input_vector); // Libera buffer de entrada
 }
