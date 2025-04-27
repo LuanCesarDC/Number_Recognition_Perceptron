@@ -36,6 +36,7 @@ int dense_forward(Layer* layer, const double* input, double* output_buffer) {
     DenseLayerData* data = (DenseLayerData*)layer->internal_data;
 
 #ifdef USE_CUDA
+    printf("CUDA Forward: Copiando input H->D... ");
     // --- Versão CUDA ---
     size_t input_bytes = layer->input_size * sizeof(double);
     size_t output_bytes = layer->output_size * sizeof(double);
@@ -85,6 +86,7 @@ int dense_backward(Layer* layer, const double* upstream_gradient, // Vem da cama
     DenseLayerData* data = (DenseLayerData*)layer->internal_data;
 
 #ifdef USE_CUDA
+    printf("CUDA Backward: Copiando upstream_gradient H->D... ");
     // --- Versão CUDA ---
     size_t upstream_bytes = layer->output_size * sizeof(double); // output_size == num_neurons
     size_t downstream_bytes = layer->input_size * sizeof(double);
