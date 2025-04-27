@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # === Configurações ===
-declare -a HIDDEN_SIZES=(32)
-declare -a LEARNING_RATES=(0.1)
-declare -a EPOCHS=(5 6)
+declare -a HIDDEN_SIZES=(32 64 128)
+declare -a LEARNING_RATES=(0.01 0.1 0.2)
+declare -a EPOCHS=(5 10 15 30 50)
 SEED=42
 OUTPUT_FILE="benchmark_results_full.csv" # Novo nome de arquivo
 GPU_ARCH="sm_86" # Substitua pela sua arquitetura
