@@ -199,122 +199,146 @@ int get_prediction_from_output(NeuralNetwork *net)
 }
 
 // --- Função de Treinamento Adaptada ---
-// Recebe a rede já criada e configurada
-void hw_train_flexible_network(NeuralNetwork *net, int num_images_to_train, int epochs)
+void hw_train_flexible_network(NeuralNetwork* net, int num_images_to_train, int epochs)
 {
-    // --- Verificações iniciais (como antes) ---
-    if (!net)
-    {
+    // --- Verificações iniciais ---
+    if (!net) {
         fprintf(stderr, "Erro: Rede Neural nao inicializada para treino.\n");
         return;
     }
+    // Imprime informações iniciais
     printf("Iniciando treinamento com %d imagens por %d epocas.\n", num_images_to_train, epochs);
-    printf("Taxa de aprendizado: %f\n", net->learning_rate);
-    if (net->num_layers == 0)
-    {
+    printf("Taxa de aprendizado: %f\n", net->learning_rate); // Mostra a taxa de aprendizado da rede
+
+    // Determina tamanhos a partir da rede (assumindo que ela já foi criada)
+    if (net->num_layers == 0) { //
         fprintf(stderr, "Erro: Rede sem camadas para treinar.\n");
         return;
     }
-    int input_size = net->layers[0]->input_size;
-    int output_size = net->layers[net->num_layers - 1]->output_size;
+    int input_size = net->layers[0]->input_size; //
+    int output_size = net->layers[net->num_layers - 1]->output_size; //
 
-    // --- Alocações (como antes) ---
-    double *input_vector = (double *)malloc(input_size * sizeof(double));
-    double *expected_vector = (double *)malloc(output_size * sizeof(double));
-    int *permutation_indices = (int *)malloc(num_images_to_train * sizeof(int));
+    // --- Aloca buffers reutilizáveis para entrada e saída esperada ---
+    double *input_vector = (double *)malloc(input_size * sizeof(double)); //
+    double *expected_vector = (double *)malloc(output_size * sizeof(double)); //
+    int *permutation_indices = (int *)malloc(num_images_to_train * sizeof(int)); //
 
-    if (!input_vector || !expected_vector || !permutation_indices)
-    {
+    if (!input_vector || !expected_vector || !permutation_indices) { //
         fprintf(stderr, "Erro: Falha ao alocar memoria para treino.\n");
+        // Libera o que pode ter sido alocado
         free(input_vector);
         free(expected_vector);
         free(permutation_indices);
         return;
     }
 
-    // >>> INÍCIO: Código de Medição de Tempo <<<
+    // >>> INÍCIO: Variáveis para Medição de Tempo <<<
     struct timespec start_time, end_time; // Estruturas para tempo
     double elapsed_time;
 
-    clock_gettime(CLOCK_MONOTONIC, &start_time); // Marca tempo inicial
-    // >>> FIM: Código de Medição de Tempo <<<
+    clock_gettime(CLOCK_MONOTONIC, &start_time); // Marca tempo inicial do treinamento
+    // >>> FIM: Variáveis para Medição de Tempo <<<
 
-    // Loop de épocas
-    for (int k = 0; k < epochs; k++)
+    // === Loop Principal de Épocas ===
+    for (int k = 0; k < epochs; k++) //
     {
         int total_epoch = 0;
         int acertos_epoch = 0;
 
-        gen_permutation(num_images_to_train, permutation_indices);
-        printf("###### [Epoch %d / %d] ######\n", k + 1, epochs);
+        // Gera uma permutação aleatória dos índices das imagens de treino
+        gen_permutation(num_images_to_train, permutation_indices); //
+        printf("###### [Epoch %d / %d] ######\n", k + 1, epochs); //
 
-        // Loop sobre as imagens de treino (na ordem permutada)
-        for (int i = 0; i < num_images_to_train; i++)
+        // --- Loop sobre as imagens de treino (na ordem permutada) ---
+        for (int i = 0; i < num_images_to_train; i++) //
         {
-            // ... (código interno do loop de imagens como antes) ...
-            // 1. Preparar Entrada
-            // 2. Preparar Saída Esperada
+            int image_index = permutation_indices[i]; //
+            hw_number data = get_training_image(image_index); // Pega a imagem MNIST
+
+            // 1. Preparar Entrada: Normalizar pixels para double [0.0, 1.0]
+            for (int px = 0; px < input_size; ++px) { //
+                input_vector[px] = (double)data.buffer[px] / 255.0; //
+            }
+
+            // 2. Preparar Saída Esperada: One-hot encoding
+            for (int out_idx = 0; out_idx < output_size; ++out_idx) { //
+                expected_vector[out_idx] = (out_idx == data.digit) ? 1.0 : 0.0; //
+            }
+
             // 3. Feedforward
+            if (network_forward(net, input_vector) != 0) { //
+                fprintf(stderr, "Erro no forward durante treino na imagem %d (indice %d).\n", i, image_index);
+                continue; // Pula para a próxima imagem
+            }
+
             // 4. Backpropagation
-            // 5. Verificar Acerto
-            // Imprimir progresso...
+            if (network_backward(net, expected_vector) != 0) { //
+                 fprintf(stderr, "Erro no backward durante treino na imagem %d (indice %d).\n", i, image_index);
+                 continue; // Pula para a próxima imagem
+            }
+
+            // 5. Verificar Acerto (Opcional, para feedback durante o treino)
+            int prediction = get_prediction_from_output(net); //
+            if (prediction == data.digit) { //
+                acertos_epoch++; //
+            }
+            total_epoch++; //
+
+             // Imprime progresso a cada N imagens (ex: 1000)
+             if ((i + 1) % 1000 == 0) { //
+                 printf("  Epoch %d: Imagens processadas %d/%d (Precisao parcial: %.2f%%)\r", //
+                        k + 1, i + 1, num_images_to_train, 100.0 * acertos_epoch / total_epoch);
+                 fflush(stdout); // Força a impressão do \r
+             }
 
         } // Fim loop imagens
 
-        printf("\nEpoch %d Concluida. Acertos: %d / Total: %d / Precisao: %.3f%%\n\n",
+        // Imprime resultado da época
+        printf("\nEpoch %d Concluida. Acertos: %d / Total: %d / Precisao: %.3f%%\n\n", //
                k + 1, acertos_epoch, total_epoch, 100.0 * acertos_epoch / total_epoch);
 
     } // Fim loop épocas
 
-    // >>> INÍCIO: Cálculo e Impressão do Tempo <<<
-    clock_gettime(CLOCK_MONOTONIC, &end_time); // Marca tempo final
+    // >>> INÍCIO: Cálculo e Impressão do Tempo Decorrido <<<
+    clock_gettime(CLOCK_MONOTONIC, &end_time); // Marca tempo final do treinamento
 
     // Calcular tempo decorrido em segundos
     elapsed_time = (end_time.tv_sec - start_time.tv_sec);
     elapsed_time += (end_time.tv_nsec - start_time.tv_nsec) / 1000000000.0;
 
-    // Imprimir tempo de treinamento (formato fácil de parsear)
-    printf("TRAINING_TIME: %.4f\n", elapsed_time); // <<< ESSA LINHA É IMPORTANTE
-    // >>> FIM: Cálculo e Impressão do Tempo <<<
+    // Imprimir tempo de treinamento (formato fácil de parsear pelo script)
+    printf("TRAINING_TIME: %.4f\n", elapsed_time);
+    // >>> FIM: Cálculo e Impressão do Tempo Decorrido <<<
 
-    // Libera memória alocada para os buffers
-    free(input_vector);
-    free(expected_vector);
-    free(permutation_indices);
 
-    printf("Treinamento concluido.\n");
+    // --- Libera memória alocada ---
+    free(input_vector); //
+    free(expected_vector); //
+    free(permutation_indices); //
+
+    printf("Treinamento concluido.\n"); //
 }
 
 // --- Função de Teste Adaptada ---
-// Recebe a rede já criada e (presumivelmente) treinada
 void hw_test_flexible_network(NeuralNetwork *net, int num_images_to_test)
 {
-    if (!net)
-    {
-        fprintf(stderr, "Erro: Rede Neural nao inicializada para teste.\n");
-        return;
-    }
+    // --- Verificações e Alocações (como antes) ---
+    if (!net) { /* ... */ return; }
     printf("Iniciando teste com %d imagens.\n", num_images_to_test);
-
-    // Determina tamanhos a partir da rede
-    if (net->num_layers == 0)
-    {
-        fprintf(stderr, "Erro: Rede sem camadas para testar.\n");
-        return;
-    }
+    if (net->num_layers == 0) { /* ... */ return; }
     int input_size = net->layers[0]->input_size;
-    // int output_size = net->layers[net->num_layers - 1]->output_size; // <<< LINHA REMOVIDA
-
-    // Aloca buffer reutilizável para entrada
     double *input_vector = (double *)malloc(input_size * sizeof(double));
-    if (!input_vector)
-    {
-        fprintf(stderr, "Erro: Falha ao alocar memoria para teste.\n");
-        return;
-    }
+    if (!input_vector) { /* ... */ return; }
 
     int total_test = 0;
     int acertos_test = 0;
+
+    // >>> INÍCIO: Código de Medição de Tempo para Inferência <<<
+    struct timespec start_time_inf, end_time_inf;
+    double elapsed_time_inf;
+
+    clock_gettime(CLOCK_MONOTONIC, &start_time_inf); // Marca tempo inicial da inferência
+    // >>> FIM: Código de Medição de Tempo para Inferência <<<
 
     // Loop sobre as imagens de teste
     for (int i = 0; i < num_images_to_test; i++)
@@ -322,41 +346,43 @@ void hw_test_flexible_network(NeuralNetwork *net, int num_images_to_test)
         hw_number data = get_testing_image(i); // Pega imagem de teste
 
         // 1. Preparar Entrada: Normalizar pixels
-        for (int px = 0; px < input_size; ++px)
-        {
+        for (int px = 0; px < input_size; ++px) {
             input_vector[px] = (double)data.buffer[px] / 255.0;
         }
 
-        // 2. Feedforward
-        if (network_forward(net, input_vector) != 0)
-        {
+        // 2. Feedforward (Esta é a operação principal da inferência)
+        if (network_forward(net, input_vector) != 0) {
             fprintf(stderr, "Erro no forward durante teste na imagem %d.\n", i);
             continue; // Pula para a próxima imagem
         }
 
         // 3. Obter Previsão e Verificar Acerto
         int prediction = get_prediction_from_output(net);
-        if (prediction == data.digit)
-        {
+        if (prediction == data.digit) {
             acertos_test++;
         }
         total_test++;
 
-        // Opcional: Imprimir a imagem e a previsão/resposta para algumas amostras
-        if (i < 10)
-        { // Imprime para as 10 primeiras
-            printf("\n--- Imagem Teste %d ---\n", i);
-            hw_number_print(data, MODO_ASCII);
-            printf("REDE PREVIU: %d | CORRETO: %d %s\n", prediction, data.digit, (prediction == data.digit ? "(OK)" : "(ERRO)"));
-        }
-        else if (i == 10)
-        {
-            printf("... (demais imagens omitidas para brevidade)\n");
-        }
+        // Impressão opcional omitida para clareza do timing...
+        // if (i < 10) { ... } else if (i == 10) { ... }
 
     } // Fim loop imagens teste
 
-    // Calcular acurácia
+
+    // >>> INÍCIO: Cálculo e Impressão do Tempo de Inferência <<<
+    clock_gettime(CLOCK_MONOTONIC, &end_time_inf); // Marca tempo final da inferência
+
+    // Calcular tempo decorrido em segundos
+    elapsed_time_inf = (end_time_inf.tv_sec - start_time_inf.tv_sec);
+    elapsed_time_inf += (end_time_inf.tv_nsec - start_time_inf.tv_nsec) / 1000000000.0;
+
+    // Imprimir tempo de inferência (formato fácil de parsear)
+    // Imprime ANTES dos resultados finais para facilitar o parseamento no script
+    printf("INFERENCE_TIME: %.4f\n", elapsed_time_inf); // <<< ADICIONADO
+    // >>> FIM: Cálculo e Impressão do Tempo de Inferência <<<
+
+
+    // Calcular acurácia (como antes)
     double final_accuracy = (total_test > 0) ? (100.0 * acertos_test / total_test) : 0.0;
 
     // Imprime resultado final do teste (como antes)
@@ -365,7 +391,7 @@ void hw_test_flexible_network(NeuralNetwork *net, int num_images_to_test)
            acertos_test, total_test, final_accuracy);
 
     // Imprimir acurácia final (formato fácil de parsear)
-    printf("FINAL_ACCURACY: %.4f\n", final_accuracy); // <<< ADICIONADO
+    printf("FINAL_ACCURACY: %.4f\n", final_accuracy); // Já existente
 
     free(input_vector); // Libera buffer de entrada
 }
