@@ -30,19 +30,20 @@ int sigmoid_forward(Layer *layer, const double *input, double *output_buffer)
 }
 
 int sigmoid_backward(Layer *layer, const double *upstream_gradient,
-                     const double *input_data_from_forward, // Usado para pegar a ativação (saída do forward)
-                     double *downstream_gradient_buffer, double learning_rate)
+                     const double *input_data_from_forward,                    // Nome permanece para clareza da interface
+                     double *downstream_gradient_buffer, double learning_rate) // Nome permanece
 {
+    // Silenciar warnings de parâmetros não usados
+    (void)input_data_from_forward; // <<< ADICIONADO
+    (void)learning_rate;           // <<< ADICIONADO
+
     if (!layer || !upstream_gradient || !downstream_gradient_buffer || !layer->activations)
         return -1;
 
     // Calcula o gradiente para a camada anterior:
-    // downstream_grad = upstream_grad * sigmoid'(soma_ponderada_que_entrou)
-    //                 = upstream_grad * sigmoid(soma) * (1 - sigmoid(soma))
-    //                 = upstream_grad * activation * (1 - activation)
     for (int i = 0; i < layer->input_size; ++i)
-    {                                              // input_size == output_size
-        double activation = layer->activations[i]; // Pega a ativação calculada no forward
+    {
+        double activation = layer->activations[i];
         double deriv = sigmoid_deriv_from_output(activation);
         downstream_gradient_buffer[i] = upstream_gradient[i] * deriv;
     }
@@ -52,9 +53,11 @@ int sigmoid_backward(Layer *layer, const double *upstream_gradient,
     return 0;
 }
 
-int activation_save(Layer* layer, FILE* fp) {
+int activation_save(Layer *layer, FILE *fp)
+{
     // Verifica ponteiros básicos, mas não há o que escrever
-    if (!layer || !fp) return -1;
+    if (!layer || !fp)
+        return -1;
     // Não faz nada, pois não há pesos ou biases aqui.
     return 0; // Sucesso
 }

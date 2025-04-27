@@ -1,8 +1,7 @@
-// ======================================================
 #include "nn_math.h"
-#include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <stdio.h> // Para error checking
+#include <math.h> // Para ceil
 
 // Macro para checagem de erro CUDA (essencial!)
 #define CUDA_CHECK(call)                                                                                           \
@@ -16,122 +15,127 @@
         }                                                                                                          \
     } while (0)
 
-// Macro para checagem de erro cuBLAS
-#define CUBLAS_CHECK(call)                                                                                 \
-    do                                                                                                     \
-    {                                                                                                      \
-        cublasStatus_t status = call;                                                                      \
-        if (status != CUBLAS_STATUS_SUCCESS)                                                               \
-        {                                                                                                  \
-            fprintf(stderr, "cuBLAS Error in %s:%d - %s: Status %d\n", __FILE__, __LINE__, #call, status); \
-            exit(EXIT_FAILURE);                                                                            \
-        }                                                                                                  \
-    } while (0)
+// --- Kernels CUDA ---
 
-// --- Funções GPU ---
-// NOTA IMPORTANTE: Estas funções agora recebem ponteiros para memória DA GPU!
-// A cópia Host -> Device e Device -> Host deve ser feita ANTES e DEPOIS
-// de chamar estas funções (geralmente dentro de dense_forward/dense_backward).
+// Kernel para: output = (input * weights^T) + bias
+__global__ void dense_forward_kernel(const double* input, const double* weights, const double* bias,
+                                     double* output, int num_neurons, int input_size)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x; // Índice do neurônio de saída
 
-// Handle global para cuBLAS (criar na inicialização do programa)
-extern cublasHandle_t cublas_handle; // Precisa ser criado em algum lugar (ex: main)
+    if (j < num_neurons) {
+        double sum = bias[j]; // Inicializa com o bias
+        for (int k = 0; k < input_size; ++k) {
+            // weights está em layout row-major: weights[neuronio, entrada]
+            sum += input[k] * weights[j * input_size + k];
+        }
+        output[j] = sum;
+    }
+}
+
+// Kernel para: downstream_gradient = upstream_gradient * weights
+// (Equivalente a downstream = weights^T * upstream)
+__global__ void dense_backward_calc_downstream_kernel(const double* upstream_gradient, const double* weights,
+                                                      double* downstream_gradient, int num_neurons, int input_size)
+{
+    int k = blockIdx.x * blockDim.x + threadIdx.x; // Índice do gradiente de saída (para camada anterior)
+
+    if (k < input_size) {
+        double sum = 0.0;
+        for (int j = 0; j < num_neurons; ++j) {
+            // weights[neuronio, entrada]
+            sum += upstream_gradient[j] * weights[j * input_size + k];
+        }
+        downstream_gradient[k] = sum;
+    }
+}
+
+// Kernel para: biases -= learning_rate * upstream_gradient
+__global__ void dense_backward_update_biases_kernel(const double* upstream_gradient, double* biases,
+                                                    int num_neurons, double learning_rate)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x; // Índice do bias/neurônio
+
+    if (j < num_neurons) {
+        biases[j] -= learning_rate * upstream_gradient[j];
+    }
+}
+
+// Kernel para: weights -= learning_rate * (upstream_gradient^T * input_data)
+// (Atualização de produto externo)
+__global__ void dense_backward_update_weights_kernel(const double* upstream_gradient, const double* input_data,
+                                                     double* weights, int num_neurons, int input_size,
+                                                     double learning_rate)
+{
+    // Usar grid 2D é mais intuitivo aqui
+    int k = blockIdx.x * blockDim.x + threadIdx.x; // Índice da coluna (input_size)
+    int j = blockIdx.y * blockDim.y + threadIdx.y; // Índice da linha (num_neurons)
+
+    if (j < num_neurons && k < input_size) {
+        int weight_index = j * input_size + k;
+        double gradient_weight = upstream_gradient[j] * input_data[k];
+        weights[weight_index] -= learning_rate * gradient_weight;
+    }
+}
+
+
+// --- Funções Host que Lançam os Kernels ---
+// NOTA: Continuam esperando ponteiros da GPU (d_*)
 
 void dense_forward_math(const double *d_input, const double *d_weights, const double *d_bias,
                         double *d_output, int num_neurons, int input_size)
 {
-    // Operação: d_output = d_bias + alpha * d_weights * d_input
-    // Usando cuBLAS: dgemv (Matrix-Vector multiply)
-    // y = alpha*A*x + beta*y
-    // Aqui: output = 1.0 * weights * input + 1.0 * bias (inicialmente copiando bias para output)
+    // Configuração do Kernel
+    int threads_per_block = 256;
+    int blocks_per_grid = (num_neurons + threads_per_block - 1) / threads_per_block;
 
-    const double alpha = 1.0;
-    const double beta = 1.0;
+    // Lançar Kernel
+    dense_forward_kernel<<<blocks_per_grid, threads_per_block>>>(
+        d_input, d_weights, d_bias, d_output, num_neurons, input_size);
 
-    // 1. Copiar bias para o vetor de saída d_output (pois dgemv adiciona a y)
-    CUDA_CHECK(cudaMemcpy(d_output, d_bias, num_neurons * sizeof(double), cudaMemcpyDeviceToDevice));
-
-    // 2. Calcular d_weights * d_input e adicionar a d_output
-    //    cuBLAS assume column-major por padrão. Se weights é row-major (como no C),
-    //    precisamos transpor a operação ou a matriz.
-    //    Op: Usar dgemv com transposição: output = bias + W * input
-    //    W é (num_neurons x input_size). input é (input_size x 1). output é (num_neurons x 1).
-    //    A=weights (M=num_neurons, N=input_size), x=input, y=output
-    CUBLAS_CHECK(cublasDgemv(cublas_handle,
-                             CUBLAS_OP_N, // Operação da Matriz A (sem transpor, assumindo layout correto ou pré-transposto)
-                             num_neurons, // rows of A
-                             input_size,  // cols of A
-                             &alpha,
-                             d_weights,   // A (matriz de pesos na GPU)
-                             num_neurons, // Leading dimension of A (lda)
-                             d_input,     // x (vetor de entrada na GPU)
-                             1,           // Incremento de x
-                             &beta,
-                             d_output, // y (vetor de saída na GPU)
-                             1));      // Incremento de y
+    // Checar por erros de lançamento e execução (assíncrono!)
+    CUDA_CHECK(cudaGetLastError());
+    // Para depuração ou se a próxima operação depender desta, sincronize:
+    // CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void dense_backward_calc_downstream(const double *d_upstream_gradient, const double *d_weights,
                                     double *d_downstream_gradient, int num_neurons, int input_size)
 {
-    // Operação: d_downstream = d_upstream * d_weights
-    // Usando cuBLAS: dgemv (transposto)
-    // y = alpha*A^T*x + beta*y
-    // Aqui: downstream = 1.0 * weights^T * upstream + 0.0 * downstream
-    // A = weights (M=num_neurons, N=input_size). x = upstream (M=num_neurons). y = downstream (N=input_size).
+    // Configuração do Kernel
+    int threads_per_block = 256;
+    int blocks_per_grid = (input_size + threads_per_block - 1) / threads_per_block;
 
-    const double alpha = 1.0;
-    const double beta = 0.0; // Zera o vetor de saída antes de calcular
+    // Lançar Kernel
+    dense_backward_calc_downstream_kernel<<<blocks_per_grid, threads_per_block>>>(
+        d_upstream_gradient, d_weights, d_downstream_gradient, num_neurons, input_size);
 
-    CUBLAS_CHECK(cublasDgemv(cublas_handle,
-                             CUBLAS_OP_T, // Transpõe a matriz A (weights)
-                             num_neurons, // rows of A original
-                             input_size,  // cols of A original
-                             &alpha,
-                             d_weights,           // A
-                             num_neurons,         // lda
-                             d_upstream_gradient, // x
-                             1,
-                             &beta,
-                             d_downstream_gradient, // y
-                             1));
+    CUDA_CHECK(cudaGetLastError());
+    // CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void dense_backward_update_params(const double *d_upstream_gradient, const double *d_input_data,
                                   double *d_weights, double *d_biases,
                                   int num_neurons, int input_size, double learning_rate)
 {
-    // Operação 1: grad_weights = upstream_gradient^T * input_data (produto externo - dger)
-    // Operação 2: grad_bias = upstream_gradient
-    // Operação 3: weights -= learning_rate * grad_weights (daxpy ou kernel customizado)
-    // Operação 4: biases -= learning_rate * grad_bias (daxpy)
+    // --- Atualização dos Biases ---
+    int threads_bias = 256;
+    int blocks_bias = (num_neurons + threads_bias - 1) / threads_bias;
+    dense_backward_update_biases_kernel<<<blocks_bias, threads_bias>>>(
+        d_upstream_gradient, d_biases, num_neurons, learning_rate);
+    CUDA_CHECK(cudaGetLastError());
 
-    const double alpha = -learning_rate; // Para subtração nas atualizações
 
-    // --- Atualização dos Biases (Operação 2 e 4 combinadas) ---
-    // biases = biases - learning_rate * upstream_gradient
-    // Usando daxpy: y = alpha*x + y
-    // Aqui: biases = (-learning_rate) * upstream_gradient + biases
-    CUBLAS_CHECK(cublasDaxpy(cublas_handle,
-                             num_neurons,         // Número de elementos
-                             &alpha,              // -learning_rate
-                             d_upstream_gradient, // x
-                             1,
-                             d_biases, // y (será modificado)
-                             1));
+    // --- Atualização dos Pesos (Grid 2D) ---
+    dim3 threads_weights(16, 16); // Bloco 2D (16*16 = 256 threads)
+    dim3 blocks_weights( (input_size + threads_weights.x - 1) / threads_weights.x,
+                         (num_neurons + threads_weights.y - 1) / threads_weights.y );
 
-    // --- Atualização dos Pesos (Operação 1 e 3) ---
-    // weights = weights - learning_rate * (upstream_gradient^T * input_data)
-    // Usando dger: A = alpha*x*y^T + A
-    // Aqui: weights = (-learning_rate) * upstream^T * input + weights
-    // x = upstream (M=num_neurons), y = input (N=input_size), A = weights (M x N)
-    CUBLAS_CHECK(cublasDger(cublas_handle,
-                            num_neurons,         // M (rows of A)
-                            input_size,          // N (cols of A)
-                            &alpha,              // -learning_rate
-                            d_upstream_gradient, // x
-                            1,
-                            d_input_data, // y
-                            1,
-                            d_weights,     // A (será modificado)
-                            num_neurons)); // lda
+    dense_backward_update_weights_kernel<<<blocks_weights, threads_weights>>>(
+        d_upstream_gradient, d_input_data, d_weights, num_neurons, input_size, learning_rate);
+    CUDA_CHECK(cudaGetLastError());
+
+    // Sincronizar após as atualizações pode ser importante se o próximo passo
+    // no loop de treino depende da conclusão destas escritas.
+    // CUDA_CHECK(cudaDeviceSynchronize());
 }
