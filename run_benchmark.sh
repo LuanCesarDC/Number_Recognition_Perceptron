@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # === Configurações ===
-declare -a NUM_DENSE_LAYERS=(2 4 8 16 24)
+declare -a NUM_DENSE_LAYERS=(2 4 8 16)
 SEED=42
 OUTPUT_FILE="benchmark_depth_results.csv"
 GPU_ARCH="sm_86"

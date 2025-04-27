@@ -11,7 +11,7 @@
 // Dentro da função main:
 int main(int argc, char *argv[]) {
     // --- Parâmetros Fixos ---
-    const int    HIDDEN_SIZE = 512;
+    const int    HIDDEN_SIZE = 128;
     const double LEARNING_RATE = 0.2;
     const int    NUM_EPOCHS = 3;
     unsigned int seed = 42; // Semente fixa padrão
