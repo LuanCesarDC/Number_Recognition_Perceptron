@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h> // <<< ADICIONADO PARA SQRT
+#include <math.h> 
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>

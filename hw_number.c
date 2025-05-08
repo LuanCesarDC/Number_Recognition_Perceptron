@@ -11,10 +11,6 @@
 // Header original do hw_number
 #include "hw_number.h"
 
-// Funções get_training_image, get_testing_image, print_ascii, hw_number_print
-// permanecem EXATAMENTE as mesmas do seu arquivo original.
-// ... (copie essas funções do seu hw_number.c original aqui) ...
-
 void print_ascii(int x)
 {
     char grayscale[10] = " .:-=+*#%@";
